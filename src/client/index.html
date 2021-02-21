@@ -1,0 +1,101 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+
+  <title>P2P CAH</title>
+  <meta name="description" content="P2P CAH">
+  <meta name="author" content="Armins88">
+
+</head>
+
+<body>
+  
+</body>
+<script src="https://cdn.socket.io/3.1.1/socket.io.min.js" integrity="sha384-gDaozqUvc4HTgo8iZjwth73C6dDDeOJsAgpxBcMpZYztUfjHXpzrpdrHRdVp8ySO" crossorigin="anonymous"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js"></script>
+<script>
+    var socket = io('http://localhost:3334');
+    var _ = require('lodash');
+
+    var surnames = [
+        'der Strauttenn',
+        'Noobancio',
+        'de la rue',
+        'Pedrolo',
+        'Villuencia',
+        'Durandes',
+        'Montiuses',
+        'Salamander',
+        'Topacio',
+        'Jar Jam',
+        'Commitment',
+        'Freeman',
+        'Asimov'
+        ];
+
+    var names = [
+    'Heston',
+    'Santiagous',
+    'Oscarweb',
+    'Kulunguelele',
+    'Sinsorus',
+    'Moeba',
+    'Ardilla',
+    'Alicate',
+    'Lambda',
+    'Morgan',
+    'Isaac'
+    ];
+
+    var titles = [
+    'Dr.',
+    'Dra.',
+    'Miss',
+    'Mr',
+    'Señor',
+    '',
+    'Don',
+    'Doña'
+    ]
+
+const generateNames = () => {
+  const indexTitle = _.random(0, titles.length -1);
+  const indexName = _.random(0, names.length -1);
+  const indexSurName = _.random(0, surnames.length -1);
+
+  return titles[indexTitle] + ' ' + names[indexName] + ' ' + surnames[indexSurName];
+}
+
+    // RTC Config and set up
+
+const initRTC = () => {
+    pc = new webkitRTCPeerConnection({
+        "iceServers": [{
+            "url": "stun:stun.l.google.com:19302"
+        }]
+    });
+    iceCandidates = [];
+ 
+    pc.onicecandidate = function (event) {
+        if (event.candidate) {
+            console.log("candidate saved..." + event.candidate.candidate);
+            iceCandidates.push(event.candidate.candidate);
+        } else if (pc.iceGatheringState == "complete") {
+            console.log("Paste in callee these calls:");
+ 
+            out = "";
+            for (var i = 0; i < iceCandidates.length; i++) {
+                out += "addIceCandidate(atob('" + btoa(iceCandidates[i]) + "' ));" + "\n";
+            }
+            console.log(out);
+        }
+    };
+}
+
+
+
+</script>
+</html>
