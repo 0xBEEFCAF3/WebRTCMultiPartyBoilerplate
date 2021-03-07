@@ -83,8 +83,6 @@ const Room = (props) => {
         socketRef.current.emit('joinRoom', {rid: props.match.params.roomID});
 
         socketRef.current.on('playerJoined', userID => {
-            console.log('player joiuned', userID,socketRef.current);
-            
             if(socketRef.current.id === userID) return;
             callUser(userID);
             otherUser.current = userID;
@@ -93,7 +91,6 @@ const Room = (props) => {
         socketRef.current.on("createRoom", () => console.log('room created'));
         socketRef.current.on("signal", handelSignal);
         socketRef.current.on("iceCandidate", handleNewICECandidateMsg);
-
     }, []);
 
 
@@ -133,11 +130,6 @@ const Room = (props) => {
         peerRef.current.createOffer().then(offer => {
             return peerRef.current.setLocalDescription(offer);
         }).then(() => {
-            const payload = {
-                target: userID,
-                caller: socketRef.current.id,
-                sdp: peerRef.current.localDescription
-            };
             // Send offer
             socketRef.current.emit("signal", {rid: props.match.params.roomID, desc: peerRef.current.localDescription});
         }).catch(e => console.log(e));
@@ -154,7 +146,7 @@ const Room = (props) => {
     }
 
 
-    function handelSignal(event) {
+    async function handelSignal(event) {
         console.log('inc event', event);
         
         if(event.player === socketRef.current.id) return;
@@ -166,37 +158,19 @@ const Room = (props) => {
                 sendChannel.current = event.channel;
                 sendChannel.current.onmessage = handleRecieveMessage;
             }
-
-            // const desc = new RTCSessionDescription(event.desc.sdp);
-            peerRef.current.setRemoteDescription(event.desc).then(() => {
-            }).then(() => {
-                return peerRef.current.createAnswer();
-            }).then(answer => {
-                return peerRef.current.setLocalDescription(answer);
-            }).then(() => {
-                socketRef.current.emit("signal", {rid: props.match.params.roomID, desc: peerRef.current.localDescription})
-            });
+            await peerRef.current.setRemoteDescription(event.desc);
+            const answer = await peerRef.current.createAnswer();
+            await peerRef.current.setLocalDescription(answer); 
+            socketRef.current.emit("signal", {rid: props.match.params.roomID, desc: peerRef.current.localDescription}) 
         } else if(event.desc.type === 'answer') {
             console.log('handel answer', event);
-            // const desc = new RTCSessionDescription(message.sdp);
             peerRef.current.setRemoteDescription(event.desc).catch(e => console.log(e));
         }
-    }
-
-    function handleAnswer(message) {
-        console.log('handel answer', message);
-        
-        const desc = new RTCSessionDescription(message.sdp);
-        peerRef.current.setRemoteDescription(desc).catch(e => console.log(e));
     }
 
     function handleICECandidateEvent(e) {
         console.log('handle ice candidate', e);
         if (e.candidate) {
-            const payload = {
-                target: otherUser.current,
-                candidate: e.candidate,
-            }
             socketRef.current.emit("iceCandidate", {rid: props.match.params.roomID, candidate: e.candidate});
         }
     }
