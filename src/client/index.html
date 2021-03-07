@@ -11,91 +11,185 @@
 </head>
 
 <body>
-  
+    <input id="rid" type="text" />
+    <button id="create">Create room</button>
+    <button id="join">Join room</button>
+    <button id="negotiate">Negotiate</button>
 </body>
 <script src="https://cdn.socket.io/3.1.1/socket.io.min.js" integrity="sha384-gDaozqUvc4HTgo8iZjwth73C6dDDeOJsAgpxBcMpZYztUfjHXpzrpdrHRdVp8ySO" crossorigin="anonymous"></script>
-
 <script src="https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js"></script>
 <script>
-    var socket = io('http://localhost:3334');
-    var _ = require('lodash');
+    (function() {
+        const configuration = { iceServers: [
+                {
+                    urls: "stun:stun.stunprotocol.org"
+                },
+                {
+                    urls: 'turn:numb.viagenie.ca',
+                    credential: 'muazkh',
+                    username: 'webrtc@live.com'
+                },
+            ]};
+        const dataChannelOptions = {
+                ordered: false, // do not guarantee order
+                maxPacketLifeTime: 3000, // in milliseconds
+            };
+        let agentId = 1;
+        const joinButton = document.getElementById('join');
+        const createButton = document.getElementById('create'); 
+        const negotiateButton = document.getElementById('negotiate');
+        joinButton.addEventListener('click', joinRoom, false);
+        createButton.addEventListener('click', createRoom, false); 
+        negotiateButton.addEventListener('click', initRTC, false);
+        let rid;
+        let pc;
+        let rc;
+        var sendChannel = null;       // RTCDataChannel for the local (sender)
+        var receiveChannel = null;    // RTCDataChannel for the remote (receiver)
+        var socket = io('http://localhost:3334');
+        // client-side
+        socket.on("connect", () => {
+            console.log('connected', socket.id);
+            agentId = socket.id;
+        });
 
-    var surnames = [
-        'der Strauttenn',
-        'Noobancio',
-        'de la rue',
-        'Pedrolo',
-        'Villuencia',
-        'Durandes',
-        'Montiuses',
-        'Salamander',
-        'Topacio',
-        'Jar Jam',
-        'Commitment',
-        'Freeman',
-        'Asimov'
-        ];
+        socket.on("disconnect", () => {
+            console.log(socket.id); // undefined
+        });
 
-    var names = [
-    'Heston',
-    'Santiagous',
-    'Oscarweb',
-    'Kulunguelele',
-    'Sinsorus',
-    'Moeba',
-    'Ardilla',
-    'Alicate',
-    'Lambda',
-    'Morgan',
-    'Isaac'
-    ];
+        socket.on("error", (e) => {
+            console.log("SOCKET IO ERROR", e);
+        });
 
-    var titles = [
-    'Dr.',
-    'Dra.',
-    'Miss',
-    'Mr',
-    'Señor',
-    '',
-    'Don',
-    'Doña'
-    ]
+        socket.on("roomCreated", () => {
+            console.log('room created');
+        });
 
-const generateNames = () => {
-  const indexTitle = _.random(0, titles.length -1);
-  const indexName = _.random(0, names.length -1);
-  const indexSurName = _.random(0, surnames.length -1);
-
-  return titles[indexTitle] + ' ' + names[indexName] + ' ' + surnames[indexSurName];
-}
-
-    // RTC Config and set up
-
-const initRTC = () => {
-    pc = new webkitRTCPeerConnection({
-        "iceServers": [{
-            "url": "stun:stun.l.google.com:19302"
-        }]
-    });
-    iceCandidates = [];
- 
-    pc.onicecandidate = function (event) {
-        if (event.candidate) {
-            console.log("candidate saved..." + event.candidate.candidate);
-            iceCandidates.push(event.candidate.candidate);
-        } else if (pc.iceGatheringState == "complete") {
-            console.log("Paste in callee these calls:");
- 
-            out = "";
-            for (var i = 0; i < iceCandidates.length; i++) {
-                out += "addIceCandidate(atob('" + btoa(iceCandidates[i]) + "' ));" + "\n";
+        socket.on("signal", async (event) => {
+            if (event.player && event.player === agentId) {
+                return;
             }
-            console.log(out);
+            if(event.desc.type === 'offer') {
+                console.log('got an offer', event);
+                await pc.setRemoteDescription(event.desc);
+                await pc.setLocalDescription(await pc.createAnswer());
+                socket.emit('signal', {rid, desc: pc.localDescription}); 
+                console.log('sending answer ', {rid, desc: pc.localDescription});
+                
+            } else if(event.desc.type === 'answer') {
+                console.log('got answer', event);
+                await pc.setRemoteDescription(event.desc);
+            }
+        });
+
+        function createRoom() {
+            console.log("EMIT created room EVENT");
+            rid = document.body.querySelector('#rid').value;
+            socket.emit('createRoom', {rid,  config: {} });
+            initAnswerer();
         }
-    };
-}
 
+        function joinRoom() {
+            console.log("EMIT join room EVENT");
+            rid = document.body.querySelector('#rid').value;
+            socket.emit('joinRoom', {rid});
+            initOfferer();
+        }
 
+        async function initOfferer() {
+            console.log('init offerer');
+            
+            
+            pc = new RTCPeerConnection(configuration);
+            pc.onIceCandidate = onIceCandidate;
+            pc.canTrickleIceCandidates = handleSendChannelStatusChange;
+            pc.onIceCandidateError = onIceCandidateError;
+            pc.onnegotiationneeded = onNegotiationNeeded;
+            sendChannel = pc.createDataChannel('sendDataChannel');
+            sendChannel.onopen = handleSendChannelStatusChange;
+            sendChannel.onclose = handleSendChannelStatusChange
+            await pc.setLocalDescription(await pc.createOffer());
+            console.log('sending offer ', pc.localDescription);
+            
+            socket.emit('signal', {rid, desc: pc.localDescription});
+        }
 
+        async function initAnswerer() {
+            console.log('initAnswerer');
+            pc = new RTCPeerConnection(configuration);
+            await pc.setLocalDescription(await pc.createOffer());
+            pc.onIceCandidate = onIceCandidate;
+            pc.onIceCandidateError = onIceCandidateError;
+            pc.ondatachannel = onDataChannel; 
+        }
+
+        async function initRTC(sendOffer=true) {
+            pc = new RTCPeerConnection(configuration);
+
+            sendChannel = pc.createDataChannel('sendDataChannel');
+            console.log('Created send data channel');
+
+            pc.onIceCandidate = onIceCandidate;
+            pc.onnegotiationneeded = onNegotiationNeeded;
+            sendChannel.onopen = handleSendChannelStatusChange;
+            sendChannel.onclose = handleSendChannelStatusChange;
+
+            rc = new RTCPeerConnection(configuration);
+            console.log('Created remote peer connection object remoteConnection');
+
+            rc.onicecandidate = onIceCandidate;
+            rc.ondatachannel = onDataChannel;
+            await pc.setLocalDescription(await pc.createOffer());
+            console.log('sending offer', pc.localDescription);
+            
+            socket.emit('signal', {rid, desc: pc.localDescription}); 
+        }
+
+        async function onNegotiationNeeded() {
+            console.log("NEGOTIATION NEEDED");
+            await pc.setLocalDescription(await pc.createOffer());
+            socket.emit('signal', {rid, desc: pc.localDescription});
+        }
+
+        function receiveChannelCallback(event) {
+            console.log("RECIEVE CHANNELL CALLBACK", event);
+            
+            receiveChannel = event.channel;
+            receiveChannel.onmessage = handleReceiveMessage;
+            receiveChannel.onopen = handleReceiveChannelStatusChange;
+            receiveChannel.onclose = handleReceiveChannelStatusChange;
+        }
+
+        function handleReceiveMessage(event) {
+            console.log("RECIEVE MESSAGE: ", event);
+        }
+
+        function handleSendChannelStatusChange(event) {
+            console.log("STATUS CHANGE:" , event);
+            if (sendChannel) {
+                var state = sendChannel.readyState;
+            }
+        }
+
+        function onDataChannel(e) {
+            console.log('on data chanell');
+        }
+
+        function onDataChannelOpen(e) {
+           console.log('onDataChannelOpen', e);
+        }
+
+        function onDataChannelClose(e) {
+           console.log('onDataChannelClose', e);
+        }
+
+        function onIceCandidate(e) {
+            console.log("ON ICE CANDIDATE NEW : ", e);
+        }
+
+        function onIceCandidateError(e) {
+            console.log("ON ICE CANDIDATE ERROR", e);
+        }
+    })();
 </script>
 </html>
