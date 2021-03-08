@@ -153,7 +153,7 @@ io.on(EVENTS.connection, (socket : Socket) => {
     });
 
     // Web RTC signaling
-    socket.on(EVENTS.signal, (payload : {rid: string, desc: {sdp: string, type: string }}) => {
+    socket.on(EVENTS.signal, (payload : {targetPlayerId:string, rid: string, desc: {sdp: string, type: string }}) => {
         if(!rooms[payload.rid]) {
             socket.emit(RESPONSES.error, errorMessages.roomUndefined);
             return;
@@ -164,14 +164,20 @@ io.on(EVENTS.connection, (socket : Socket) => {
             return; 
         }
 
-        const player = rooms[payload.rid].find(p => p.id === socket.id);
-        io.to(payload.rid).emit(RESPONSES.signal, { desc: payload.desc, player: player.id });
+        socket.broadcast.emit(RESPONSES.signal, { targetPlayerId: payload.targetPlayerId, desc: payload.desc, playerId: socket.id });
+        // io.to(payload.rid).emit(RESPONSES.signal, { desc: payload.desc, playerId: player.id });
     });
 
     socket.on(EVENTS.iceCandidate, (payload : {rid: string, candidate: object }) => {
         console.log('ice candidate', payload);
         
-        io.to(payload.rid).emit(RESPONSES.iceCandidate, payload);
+        io.to(payload.rid).emit(RESPONSES.iceCandidate, {...payload, playerId: socket.id });
+    });
+
+    socket.on("iceCandidateAlt", (payload : {targetPlayerId:string, rid: string, candidate: object }) => {
+        console.log('ice candidate', payload);
+        socket.broadcast.emit(RESPONSES.iceCandidate, {...payload, playerId: socket.id }); 
+        // io.to(payload.rid).emit(RESPONSES.iceCandidate, {...payload, playerId: socket.id });
     });
 
 });
